@@ -13,7 +13,8 @@ Setiap pagi sebelum bursa buka, alat ini mengambil data harga & volume saham IDX
 - Indikator pendukung: **RSI(14)** dan **MACD**
 - Penyimpanan historis ke **SQLite**
 - Notifikasi **Telegram** dengan fallback log/email
-- Jalankan otomatis via **cron**
+- Jalankan otomatis via **systemd timer**
+- Health check harian + integrasi **Healthchecks.io**
 
 ## Sumber Data
 
@@ -75,19 +76,48 @@ python3 idx_screener.py --config config.json
 python3 idx_screener.py --min-value 5000000000 --volume-spike 1.2 --top-n 15 --period 90d
 ```
 
-## Jalankan Otomatis via Cron
+## Jalankan Otomatis via Systemd Timer
+
+Saya sudah setup systemd timer. Jika baru pertama kali setup atau ingin manual:
 
 ```bash
-bash setup_cron.sh
+systemctl --user daemon-reload
+systemctl --user enable --now idx-screener.timer
+systemctl --user status idx-screener.timer
 ```
 
-Ini akan memasang cron job Senin–Jumat pukul 08:30 WIB yang menjalankan screener dan mengirim hasil ke Telegram.
+Timer akan berjalan hari kerja pukul 08:30 WIB.
 
-Gunakan preset tertentu via environment variable:
+Cek log terakhir:
 
 ```bash
-SCREENER_PRESET=loose bash setup_cron.sh
+systemctl --user status idx-screener.service
+journalctl --user -u idx-screener.service -n 50
 ```
+
+## Health Check & Monitoring
+
+### Health Check Lokal
+
+```bash
+python3 health_check.py
+```
+
+Script ini memeriksa:
+- systemd timer aktif
+- Database SQLite punya data dalam 3 hari terakhir
+- Bot Telegram bisa dihubungi
+
+### Healthchecks.io (Opsional)
+
+1. Buat akun di https://healthchecks.io
+2. Buat check baru, salin URL ping ke `.env`:
+
+```bash
+HEALTHCHECKS_URL=https://hc-ping.com/your-uuid-here
+```
+
+3. Screener akan otomatis mengirim ping `/start` saat mulai dan ping sukses/gagal setelah selesai.
 
 ## Output JSON
 

@@ -52,6 +52,46 @@ def get_recent_screenings(days: int = 30, ticker: str | None = None) -> list[dic
     return results
 
 
+def get_daily_counts(days: int = 30) -> list[dict]:
+    """Aggregate candidate counts per date for charting."""
+    if not DB_PATH.exists():
+        return []
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    cursor = conn.execute(
+        "SELECT date, COUNT(*) as count FROM screenings WHERE date >= ? GROUP BY date ORDER BY date",
+        (cutoff,),
+    )
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+def get_ticker_volume_spike(days: int = 30) -> list[dict]:
+    """Aggregate average volume spike per ticker."""
+    if not DB_PATH.exists():
+        return []
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    cursor = conn.execute(
+        """
+        SELECT ticker, AVG(volume_spike) as avg_spike, COUNT(*) as count
+        FROM screenings
+        WHERE date >= ?
+        GROUP BY ticker
+        ORDER BY avg_spike DESC
+        """,
+        (cutoff,),
+    )
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
 def get_stats() -> ScreeningStats:
     if not DB_PATH.exists():
         return ScreeningStats(0, 0, None, 0.0)
@@ -90,6 +130,7 @@ DASHBOARD_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IDX Screener Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <style>
         :root {
             --bg: #0f172a;
@@ -149,6 +190,19 @@ DASHBOARD_TEMPLATE = """
             font-weight: 600;
             cursor: pointer;
         }
+        .charts {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .chart-card {
+            background: var(--card);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .chart-card h3 { margin: 0 0 1rem 0; color: var(--muted); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em; }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -165,6 +219,7 @@ DASHBOARD_TEMPLATE = """
         .muted { color: var(--muted); }
         @media (max-width: 768px) {
             .container { padding: 1rem; }
+            .charts { grid-template-columns: 1fr; }
             table { font-size: 0.875rem; }
             th, td { padding: 0.75rem 0.5rem; }
         }
@@ -214,6 +269,17 @@ DASHBOARD_TEMPLATE = """
             <button type="submit">Terapkan</button>
         </form>
 
+        <div class="charts">
+            <div class="chart-card">
+                <h3>Kandidat per Hari</h3>
+                <canvas id="dailyChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Volume Spike per Ticker</h3>
+                <canvas id="spikeChart"></canvas>
+            </div>
+        </div>
+
         <table>
             <thead>
                 <tr>
@@ -249,6 +315,59 @@ DASHBOARD_TEMPLATE = """
             </tbody>
         </table>
     </div>
+
+    <script>
+        const dailyLabels = {{ daily_labels | tojson }};
+        const dailyCounts = {{ daily_counts | tojson }};
+        const spikeLabels = {{ spike_labels | tojson }};
+        const spikeValues = {{ spike_values | tojson }};
+
+        new Chart(document.getElementById('dailyChart'), {
+            type: 'bar',
+            data: {
+                labels: dailyLabels,
+                datasets: [{
+                    label: 'Jumlah Kandidat',
+                    data: dailyCounts,
+                    backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                    borderColor: '#10b981',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+                    x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }
+                }
+            }
+        });
+
+        new Chart(document.getElementById('spikeChart'), {
+            type: 'bar',
+            data: {
+                labels: spikeLabels,
+                datasets: [{
+                    label: 'Avg Volume Spike',
+                    data: spikeValues,
+                    backgroundColor: 'rgba(245, 158, 11, 0.7)',
+                    borderColor: '#f59e0b',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },
+                    x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }
+                }
+            }
+        });
+    </script>
 </body>
 </html>
 """
@@ -266,6 +385,14 @@ def index():
     stats = get_stats()
     tickers = get_unique_tickers()
 
+    daily = get_daily_counts(days=days)
+    daily_labels = [d["date"][-5:] for d in daily]  # MM-DD
+    daily_counts = [d["count"] for d in daily]
+
+    spike_data = get_ticker_volume_spike(days=days)
+    spike_labels = [d["ticker"] for d in spike_data]
+    spike_values = [round(d["avg_spike"], 2) for d in spike_data]
+
     return render_template_string(
         DASHBOARD_TEMPLATE,
         stats=stats,
@@ -273,6 +400,10 @@ def index():
         tickers=tickers,
         days=days,
         ticker=ticker or "",
+        daily_labels=daily_labels,
+        daily_counts=daily_counts,
+        spike_labels=spike_labels,
+        spike_values=spike_values,
     )
 
 

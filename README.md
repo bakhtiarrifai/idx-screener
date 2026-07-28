@@ -27,11 +27,15 @@ Setiap pagi sebelum bursa buka, alat ini mengambil data harga & volume saham IDX
 - **Momentum**: harga close di atas MA20
 - **Risiko**: harga close ≥ Rp100, data lengkap
 
-## Instalasi
+## Instalasi untuk Clone
 
 ```bash
+git clone https://github.com/bakhtiarrifai/idx-screener.git
+cd idx-screener
 python3 -m pip install -r requirements.txt
 ```
+
+> **Catatan penting:** File `.env` tidak ikut di repository (masuk `.gitignore`). Setelah clone, buat file `.env` sendiri dari contoh: `cp .env.example .env`, lalu isi `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID`.
 
 ## Setup Telegram (Opsional)
 

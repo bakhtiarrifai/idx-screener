@@ -1,0 +1,89 @@
+{
+  "name": "IDX Daily Stock Screener",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+            }
+          ]
+        },
+        "time": "08:30"
+      },
+      "name": "Weekday Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "command": "python3 /home/bakhtiarrifai/projects/idx-screener/idx_screener.py --output json",
+        "shell": "bash"
+      },
+      "name": "Run Screener",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stdout = $input.first().json.stdout || '{}';\nlet data;\ntry {\n  data = JSON.parse(stdout);\n} catch (e) {\n  data = { date: 'unknown', candidates: [], total_candidates: 0 };\n}\nreturn [{ json: data }];"
+      },
+      "name": "Parse JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=📊 *IDX Swing Screener — {{ $json.date }}*\n\n{{ $json.total_candidates > 0 ? $json.candidates.map(c => `*${c.ticker}* — close ${c.close.toLocaleString('id-ID')}\nvalue: Rp ${(c.value_traded/1e9).toFixed(2)} M | vol spike: ${c.volume_spike.toFixed(2)}x | MA20: ${c.ma20.toLocaleString('id-ID')}`).join('\n\n') : 'Tidak ada kandidat yang lolos filter hari ini.\n_Stay flat. Tunggu setup yang lebih baik._' }}\n\n⚠️ _Ini bukan sinyal beli. Lakukan due diligence sebelum entry._",
+        "additionalOptions": {
+          "parse_mode": "MarkdownV2",
+          "disable_web_page_preview": true
+        }
+      },
+      "name": "Send Telegram Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Weekday Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Screener",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Screener": {
+      "main": [
+        [
+          {
+            "node": "Parse JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse JSON": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

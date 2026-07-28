@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# Environment variables (keep secrets safe)
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+screener_history.db
+*.db-journal
+n8n_volume/
+fallback_notifications.log
+screener.log
+
+# Local config overrides
+config.local.json
+
+# Claude local settings
+.claude/settings.local.json
+.claude/

@@ -146,3 +146,34 @@ Jika pengiriman Telegram gagal, pesan akan disimpan ke `fallback_notifications.l
 
 - Ini adalah **alat bantu analisis**, bukan sinyal beli otomatis. Keputusan trading tetap manual.
 - Filter default cukup ketat. Di pasar tenang bisa jadi tidak ada kandidat yang lolos — itu wajar dan justru bagus untuk mencegah over-trading.
+
+## Dashboard Web
+
+Dashboard sederhana tersedia di `http://localhost:5000`.
+
+### Jalankan Manual
+
+```bash
+python3 dashboard.py
+```
+
+### Jalankan via Systemd (Auto-start)
+
+Sudah di-setup sebagai service user:
+
+```bash
+systemctl --user enable --now idx-screener-dashboard.service
+systemctl --user status idx-screener-dashboard.service
+```
+
+### Endpoint API
+
+```bash
+curl http://localhost:5000/api/screenings?days=30
+```
+
+Fitur dashboard:
+- Statistik total hari terekam, total kandidat, rata-rata/hari
+- Filter periode (7/30/60/90 hari)
+- Filter berdasarkan ticker
+- Tabel histori dengan RSI dan MACD

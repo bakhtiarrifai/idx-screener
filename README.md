@@ -2,19 +2,21 @@
 
 Prototype screener saham harian Bursa Efek Indonesia (BEI/IDX) untuk pendekatan **swing trading**.
 
-## Tujuan
+Setiap pagi sebelum bursa buka, alat ini mengambil data harga & volume saham IDX dari Yahoo Finance, menghitung filter objektif, dan mengembalikan daftar kandidat swing trade beserta rekomendasi Entry, SL, dan TP.
 
-Setiap pagi sebelum bursa buka, alat ini mengambil data harga & volume saham IDX dari Yahoo Finance, menghitung filter objektif, dan mengembalikan daftar kandidat swing trade.
+> **Catatan data**: data yang digunakan adalah **closing H-1**, dirilis hari H jam 08:30 WIB sebelum bursa buka.
 
 ## Fitur
 
 - Data harian IDX dari **Yahoo Finance** tanpa API key
 - Filter objektif: likuiditas, volume spike, momentum di atas MA20
-- Indikator pendukung: **RSI(14)** dan **MACD**
+- Indikator pendukung: **RSI(14)**, **MACD**, **ATR(14)**
+- Rekomendasi trading: **Entry Zone**, **Stop Loss (SL)**, **Target Profit (TP)** dengan R:R 1:2
 - Penyimpanan historis ke **SQLite**
 - Notifikasi **Telegram** dengan fallback log/email
-- Jalankan otomatis via **systemd timer**
+- Jalankan otomatis via **systemd timer** atau **cron**
 - Health check harian + integrasi **Healthchecks.io**
+- Dashboard web di http://localhost:5000
 
 ## Sumber Data
 
@@ -28,15 +30,44 @@ Setiap pagi sebelum bursa buka, alat ini mengambil data harga & volume saham IDX
 - **Momentum**: harga close di atas MA20
 - **Risiko**: harga close ≥ Rp100, data lengkap
 
-## Instalasi untuk Clone
+## Instalasi Cross-Platform
+
+### Linux / macOS
 
 ```bash
 git clone https://github.com/bakhtiarrifai/idx-screener.git
 cd idx-screener
-python3 -m pip install -r requirements.txt
+bash setup.sh
 ```
 
-> **Catatan penting:** File `.env` tidak ikut di repository (masuk `.gitignore`). Setelah clone, buat file `.env` sendiri dari contoh: `cp .env.example .env`, lalu isi `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID`.
+### Windows
+
+```bat
+git clone https://github.com/bakhtiarrifai/idx-screener.git
+cd idx-screener
+setup.bat
+```
+
+Atau jika menggunakan PowerShell:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+```
+
+### Manual (semua OS)
+
+Pastikan Python 3.10+ terinstall:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# atau: .venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+cp .env.example .env
+```
 
 ## Setup Telegram (Opsional)
 
@@ -60,39 +91,65 @@ python3 test_telegram.py
 ## Penggunaan Manual
 
 ```bash
+# Aktifkan virtual environment
+cd idx-screener
+source .venv/bin/activate  # Linux/macOS
+# atau: .venv\Scripts\activate  # Windows
+
 # Output text default
-python3 idx_screener.py
+python idx_screener.py
 
 # Output JSON
-python3 idx_screener.py --output json
+python idx_screener.py --output json
 
 # Gunakan preset: default, strict, loose
-python3 idx_screener.py --preset loose
+python idx_screener.py --preset loose
 
 # Gunakan file konfigurasi JSON kustom
-python3 idx_screener.py --config config.json
+python idx_screener.py --config config.json
 
 # Parameter kustom langsung
-python3 idx_screener.py --min-value 5000000000 --volume-spike 1.2 --top-n 15 --period 90d
+python idx_screener.py --min-value 5000000000 --volume-spike 1.2 --top-n 15 --period 90d
 ```
 
-## Jalankan Otomatis via Systemd Timer
-
-Saya sudah setup systemd timer. Jika baru pertama kali setup atau ingin manual:
+### Runner Cross-Platform
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now idx-screener.timer
+# Linux/macOS
+python run.py
+
+# Windows
+python run.py
+```
+
+## Jalankan Otomatis
+
+### Linux (Systemd Timer)
+
+```bash
+bash setup_cron.sh
 systemctl --user status idx-screener.timer
 ```
 
 Timer akan berjalan hari kerja pukul 08:30 WIB.
 
-Cek log terakhir:
+### macOS
+
+Systemd tidak tersedia di macOS. Gunakan **cron** atau **launchd**:
 
 ```bash
-systemctl --user status idx-screener.service
-journalctl --user -u idx-screener.service -n 50
+bash setup_cron.sh
+```
+
+Jika systemd tidak terdeteksi, setup_cron.sh otomatis menggunakan cron.
+
+### Windows (Task Scheduler)
+
+Untuk Windows Task Scheduler, jalankan manual setiap pagi atau gunakan Task Scheduler:
+
+```powershell
+# Membuat task baru dengan Task Scheduler
+schtasks /create /tn "IDX Screener" /tr "C:\path\to\idx-screener\.venv\Scripts\python.exe C:\path\to\idx-screener\run.py" /sc weekly /d MON,TUE,WED,THU,FRI /st 08:30
 ```
 
 ## Health Check & Monitoring
@@ -100,13 +157,8 @@ journalctl --user -u idx-screener.service -n 50
 ### Health Check Lokal
 
 ```bash
-python3 health_check.py
+python health_check.py
 ```
-
-Script ini memeriksa:
-- systemd timer aktif
-- Database SQLite punya data dalam 3 hari terakhir
-- Bot Telegram bisa dihubungi
 
 ### Healthchecks.io (Opsional)
 
@@ -117,7 +169,7 @@ Script ini memeriksa:
 HEALTHCHECKS_URL=https://hc-ping.com/your-uuid-here
 ```
 
-3. Screener akan otomatis mengirim ping `/start` saat mulai dan ping sukses/gagal setelah selesai.
+3. Screener akan otomatis mengirim ping saat mulai dan selesai.
 
 ## Output JSON
 
@@ -138,28 +190,32 @@ HEALTHCHECKS_URL=https://hc-ping.com/your-uuid-here
 | default| Rp 10 miliar     | 1.5x         | 10    |
 | loose  | Rp 5 miliar      | 1.2x         | 15    |
 
+## Rekomendasi Trading
+
+Setiap kandidat yang lolos filter akan mendapatkan rekomendasi:
+
+| Kolom | Keterangan |
+|-------|-----------|
+| **Entry Zone** | Zona harga beli yang disarankan |
+| **SL** | Stop Loss, dihitung dari ATR(14) × 1.5 |
+| **TP** | Target Profit, R:R minimum 1:2 |
+| **R:R** | Risk-reward ratio |
+
 ## Fallback Notifikasi
 
 Jika pengiriman Telegram gagal, pesan akan disimpan ke `fallback_notifications.log` dan/atau dikirim via email jika variabel SMTP diatur di `.env`.
 
-## Catatan Penting
-
-- Ini adalah **alat bantu analisis**, bukan sinyal beli otomatis. Keputusan trading tetap manual.
-- Filter default cukup ketat. Di pasar tenang bisa jadi tidak ada kandidat yang lolos — itu wajar dan justru bagus untuk mencegah over-trading.
-
 ## Dashboard Web
 
-Dashboard sederhana tersedia di `http://localhost:5000`.
+Dashboard tersedia di http://localhost:5000
 
 ### Jalankan Manual
 
 ```bash
-python3 dashboard.py
+python dashboard.py
 ```
 
-### Jalankan via Systemd (Auto-start)
-
-Sudah di-setup sebagai service user:
+### Jalankan via Systemd (Linux)
 
 ```bash
 systemctl --user enable --now idx-screener-dashboard.service
@@ -176,4 +232,11 @@ Fitur dashboard:
 - Statistik total hari terekam, total kandidat, rata-rata/hari
 - Filter periode (7/30/60/90 hari)
 - Filter berdasarkan ticker
-- Tabel histori dengan RSI dan MACD
+- Tabel histori dengan Entry Zone, SL, TP, dan R:R
+- Chart kandidat per hari dan volume spike per ticker
+
+## Catatan Penting
+
+- Ini adalah **alat bantu analisis**, bukan sinyal beli otomatis. Keputusan trading tetap manual.
+- Filter default cukup ketat. Di pasar tenang bisa jadi tidak ada kandidat yang lolos — itu wajar dan justru bagus untuk mencegah over-trading.
+- Data yang digunakan adalah closing H-1 karena bursa baru buka pukul 09:00 WIB dan data harian diupdate setelah market close.

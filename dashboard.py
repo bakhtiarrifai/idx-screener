@@ -286,12 +286,13 @@ DASHBOARD_TEMPLATE = """
                     <th>Tanggal</th>
                     <th>Ticker</th>
                     <th>Close</th>
-                    <th>Volume</th>
-                    <th>Value</th>
                     <th>Vol Spike</th>
                     <th>MA20</th>
                     <th>RSI14</th>
-                    <th>MACD</th>
+                    <th>Entry Zone</th>
+                    <th>SL</th>
+                    <th>TP</th>
+                    <th>R:R</th>
                 </tr>
             </thead>
             <tbody>
@@ -300,16 +301,23 @@ DASHBOARD_TEMPLATE = """
                     <td>{{ row.date }}</td>
                     <td><strong>{{ row.ticker }}</strong></td>
                     <td>{{ "{:,.0f}".format(row.close) }}</td>
-                    <td>{{ "{:,}".format(row.volume) }}</td>
-                    <td>{{ "{:,.0f}".format(row.value_traded) }}</td>
                     <td class="{{ 'up' if row.volume_spike >= 1.5 else 'muted' }}">{{ "{:.2f}x".format(row.volume_spike) }}</td>
                     <td>{{ "{:,.0f}".format(row.ma20) }}</td>
                     <td>{{ "{:.1f}".format(row.rsi14) if row.rsi14 else "-" }}</td>
-                    <td class="{{ 'up' if row.macd and row.macd > 0 else 'down' }}">{{ "{:.2f}".format(row.macd) if row.macd else "-" }}</td>
+                    <td>
+                        {% if row.entry_zone_low and row.entry_zone_high %}
+                        {{ "{:,.0f}".format(row.entry_zone_low) }} - {{ "{:,.0f}".format(row.entry_zone_high) }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td class="down">{{ "{:,.0f}".format(row.stop_loss) if row.stop_loss else "-" }}</td>
+                    <td class="up">{{ "{:,.0f}".format(row.target_profit) if row.target_profit else "-" }}</td>
+                    <td>{{ "1:{:.1f}".format(row.risk_reward) if row.risk_reward else "-" }}</td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="9" style="text-align:center; color: var(--muted);">Belum ada data. Jalankan screener terlebih dahulu.</td>
+                    <td colspan="10" style="text-align:center; color: var(--muted);">Belum ada data. Jalankan screener terlebih dahulu.</td>
                 </tr>
                 {% endfor %}
             </tbody>

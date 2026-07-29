@@ -9,6 +9,7 @@ lalu menyaring kandidat swing trade berdasarkan:
 - Momentum: harga close di atas MA20
 - Filter risiko: exclude saham dengan data tidak lengkap atau harga terlalu rendah
 - Indikator pendukung: RSI, MACD
+- Rekomendasi: entry zone, TP (target profit), SL (stop loss)
 
 Output: daftar kandidat dengan metrik pendukung (text atau JSON).
 """
@@ -34,7 +35,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Daftar ticker LQ45-ish (Yahoo Finance format: <KODE>.JK)
 LQ45_TICKERS = [
     "ACES.JK", "ADRO.JK", "AMRT.JK", "ANTM.JK", "ARTO.JK", "ASII.JK",
     "BBCA.JK", "BBNI.JK", "BBRI.JK", "BMRI.JK", "BRIS.JK", "BRPT.JK",
@@ -50,6 +50,12 @@ PRESETS = {
     "strict": {"min_value_traded": 20_000_000_000.0, "volume_spike_ratio": 2.0, "min_close_price": 100.0, "top_n": 10},
     "loose": {"min_value_traded": 5_000_000_000.0, "volume_spike_ratio": 1.2, "min_close_price": 50.0, "top_n": 15},
 }
+
+# Konstanta rekomendasi risiko
+SWING_RISK_PERCENT = 0.07       # jarak SL 7% dari harga close
+MIN_REWARD_RISK = 1.5           # minimum R:R 1:1.5
+DEFAULT_TP_PERCENT = 0.05       # TP +5% (kalau ATR tidak tersedia)
+DEFAULT_ENTRY_BUFFER = 0.015    # zona entry ±1.5%
 
 
 @dataclass
@@ -73,6 +79,18 @@ class ScreenerConfig:
 
 
 @dataclass
+class TradeRecommendation:
+    ticker: str
+    close: float
+    entry_zone_low: float
+    entry_zone_high: float
+    stop_loss: float
+    target_profit: float
+    risk_reward: float
+    rationale: str
+
+
+@dataclass
 class StockMetrics:
     ticker: str
     close: float
@@ -85,7 +103,9 @@ class StockMetrics:
     rsi14: float | None
     macd: float | None
     macd_signal: float | None
+    atr14: float | None
     latest_date: str
+    recommendation: TradeRecommendation | None = None
 
 
 def _compute_rsi(prices: pd.Series, window: int = 14) -> float | None:
@@ -110,6 +130,74 @@ def _compute_macd(prices: pd.Series) -> tuple[float | None, float | None]:
     macd = ema12 - ema26
     signal = macd.ewm(span=9, adjust=False).mean()
     return float(macd.iloc[-1]), float(signal.iloc[-1])
+
+
+def _compute_atr(df: pd.DataFrame, window: int = 14) -> float | None:
+    """Average True Range untuk sizing SL dinamis."""
+    if len(df) < window + 1:
+        return None
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+    tr1 = high - low
+    tr2 = abs(high - close.shift(1))
+    tr3 = abs(low - close.shift(1))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.rolling(window=window).mean().iloc[-1]
+    return float(atr) if pd.notna(atr) else None
+
+
+def generate_recommendation(
+    ticker: str,
+    close: float,
+    ma20: float,
+    atr14: float | None,
+    rsi14: float | None,
+) -> TradeRecommendation:
+    """
+    Buat rekomendasi entry, SL, dan TP untuk swing trading.
+    - Entry zone: sekitar close dengan buffer kecil (atau pullback ke MA20 jika RSI tinggi)
+    - SL: di bawah support terdekat (ATR-based atau 7%)
+    - TP: berdasarkan risk-reward minimum 1:1.5
+    """
+    # Tentukan entry zone
+    if rsi14 is not None and rsi14 > 70:
+        # Jangan chase, tunggu pullback ke dekat MA20
+        entry_zone_high = close
+        entry_zone_low = max(close * 0.96, ma20)
+    else:
+        entry_zone_low = close * (1 - DEFAULT_ENTRY_BUFFER)
+        entry_zone_high = close * (1 + DEFAULT_ENTRY_BUFFER)
+
+    # Stop loss: ATR-based kalau tersedia, fallback 7%
+    if atr14 is not None and atr14 > 0:
+        sl_distance = max(atr14 * 1.5, close * 0.04)
+    else:
+        sl_distance = close * SWING_RISK_PERCENT
+
+    stop_loss = close - sl_distance
+
+    # TP harus memenuhi R:R minimum
+    tp_distance = sl_distance * MIN_REWARD_RISK
+    target_profit = close + tp_distance
+
+    risk_reward = (target_profit - close) / (close - stop_loss)
+
+    if rsi14 is not None and rsi14 > 70:
+        rationale = f"RSI tinggi ({rsi14:.1f}); tunggu pullback ke zona entry. SL ATR-based, TP {MIN_REWARD_RISK}:1."
+    else:
+        rationale = f"Breakout volume dengan SL ATR-based. Target TP {MIN_REWARD_RISK}:1 risk-reward."
+
+    return TradeRecommendation(
+        ticker=ticker,
+        close=close,
+        entry_zone_low=entry_zone_low,
+        entry_zone_high=entry_zone_high,
+        stop_loss=stop_loss,
+        target_profit=target_profit,
+        risk_reward=risk_reward,
+        rationale=rationale,
+    )
 
 
 def fetch_prices(tickers: list[str], period: str = "90d", progress: bool = False) -> pd.DataFrame:
@@ -167,6 +255,15 @@ def calculate_metrics(df: pd.DataFrame, config: ScreenerConfig) -> list[StockMet
         close_series = group["Close"]
         rsi14 = _compute_rsi(close_series, window=14)
         macd, macd_signal = _compute_macd(close_series)
+        atr14 = _compute_atr(group)
+
+        recommendation = generate_recommendation(
+            ticker=ticker,
+            close=close,
+            ma20=ma20,
+            atr14=atr14,
+            rsi14=rsi14,
+        )
 
         metrics.append(
             StockMetrics(
@@ -181,7 +278,9 @@ def calculate_metrics(df: pd.DataFrame, config: ScreenerConfig) -> list[StockMet
                 rsi14=rsi14,
                 macd=macd,
                 macd_signal=macd_signal,
+                atr14=atr14,
                 latest_date=pd.to_datetime(latest["Date"]).date().isoformat(),
+                recommendation=recommendation,
             )
         )
 
@@ -218,15 +317,17 @@ def print_results(candidates: list[StockMetrics], date_str: str | None = None) -
         return
 
     print(f"\n📊 IDX Swing Trade Screener — {date_str}\n")
-    print(f"{'Ticker':<8} {'Close':>10} {'Volume':>12} {'Value':>12} {'Vol Spike':>10} {'MA20':>10} {'RSI14':>8} {'MACD':>10} {'>MA20':>6}")
-    print("-" * 100)
     for m in candidates:
-        rsi = f"{m.rsi14:.1f}" if m.rsi14 is not None else "-"
-        macd = f"{m.macd:.2f}" if m.macd is not None else "-"
-        print(
-            f"{m.ticker:<8} {m.close:>10,.0f} {m.volume:>12,} {format_currency(m.value_traded):>12} "
-            f"{m.volume_spike:>9.2f}x {m.ma20:>10,.0f} {rsi:>8} {macd:>10} {'✓' if m.above_ma20 else '✗':>6}"
-        )
+        print(f"{'='*70}")
+        print(f"*{m.ticker}*  Close: {m.close:,.0f}")
+        print(f"  Volume Spike: {m.volume_spike:.2f}x | MA20: {m.ma20:,.0f} | RSI14: {m.rsi14:.1f} | MACD: {m.macd:.2f}")
+        if m.recommendation:
+            rec = m.recommendation
+            print(f"\n  💡 Entry Zone: {rec.entry_zone_low:,.0f} - {rec.entry_zone_high:,.0f}")
+            print(f"  🛑 Stop Loss:  {rec.stop_loss:,.0f}")
+            print(f"  🎯 Target:     {rec.target_profit:,.0f}")
+            print(f"  ⚖️  R:R:        1:{rec.risk_reward:.2f}")
+            print(f"  📝 {rec.rationale}")
     print(f"\nTotal kandidat: {len(candidates)}\n")
 
 
@@ -253,6 +354,12 @@ class HistoryStore:
                     rsi14 REAL,
                     macd REAL,
                     macd_signal REAL,
+                    atr14 REAL,
+                    entry_zone_low REAL,
+                    entry_zone_high REAL,
+                    stop_loss REAL,
+                    target_profit REAL,
+                    risk_reward REAL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
                 """
@@ -262,11 +369,13 @@ class HistoryStore:
     def save(self, date: str, candidates: list[dict]) -> None:
         with sqlite3.connect(self.db_path) as conn:
             for c in candidates:
+                rec = c.get("recommendation")
                 conn.execute(
                     """
                     INSERT INTO screenings
-                    (date, ticker, close, volume, value_traded, volume_spike, ma20, rsi14, macd, macd_signal)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (date, ticker, close, volume, value_traded, volume_spike, ma20, rsi14, macd, macd_signal,
+                     atr14, entry_zone_low, entry_zone_high, stop_loss, target_profit, risk_reward)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         date,
@@ -279,6 +388,12 @@ class HistoryStore:
                         c.get("rsi14"),
                         c.get("macd"),
                         c.get("macd_signal"),
+                        c.get("atr14"),
+                        rec.get("entry_zone_low") if rec else None,
+                        rec.get("entry_zone_high") if rec else None,
+                        rec.get("stop_loss") if rec else None,
+                        rec.get("target_profit") if rec else None,
+                        rec.get("risk_reward") if rec else None,
                     ),
                 )
             conn.commit()
@@ -291,6 +406,26 @@ class HistoryStore:
                 (limit,),
             )
             return [dict(row) for row in cursor.fetchall()]
+
+
+# Migration: add recommendation columns if table exists without them
+
+def _migrate_db(db_path: str | Path) -> None:
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute("PRAGMA table_info(screenings)")
+        columns = [row[1] for row in cursor.fetchall()]
+        new_columns = {
+            "atr14": "REAL",
+            "entry_zone_low": "REAL",
+            "entry_zone_high": "REAL",
+            "stop_loss": "REAL",
+            "target_profit": "REAL",
+            "risk_reward": "REAL",
+        }
+        for col, col_type in new_columns.items():
+            if col not in columns:
+                conn.execute(f"ALTER TABLE screenings ADD COLUMN {col} {col_type}")
+        conn.commit()
 
 
 def run_screener(
@@ -353,6 +488,10 @@ def main() -> int:
 
     tickers = args.tickers or LQ45_TICKERS
     store = HistoryStore() if args.save_history and not args.no_save_history else None
+
+    # Migrate old DB
+    if store:
+        _migrate_db(store.db_path)
 
     result = run_screener(tickers, config, period=args.period, store=store)
 

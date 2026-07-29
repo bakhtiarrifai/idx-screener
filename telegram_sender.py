@@ -30,6 +30,16 @@ logger = logging.getLogger(__name__)
 FALLBACK_LOG = Path(__file__).parent / "fallback_notifications.log"
 
 
+def _format_value(value: float) -> str:
+    if value >= 1_000_000_000_000:
+        return f"{value/1_000_000_000_000:.2f}T"
+    if value >= 1_000_000_000:
+        return f"{value/1_000_000_000:.2f}M"
+    if value >= 1_000_000:
+        return f"{value/1_000_000:.2f}jt"
+    return f"{value:,.0f}"
+
+
 def build_message(result: dict) -> str:
     date = result.get("date") or "Hari ini"
     candidates = result.get("candidates", [])
@@ -44,13 +54,7 @@ def build_message(result: dict) -> str:
     lines = [f"📊 *IDX Swing Screener — {date}*", f"Kandidat: {len(candidates)}\n"]
     for c in candidates:
         value = c["value_traded"]
-        if value >= 1_000_000_000_000:
-            value_str = f"{value/1_000_000_000_000:.2f}T"
-        elif value >= 1_000_000_000:
-            value_str = f"{value/1_000_000_000:.2f}M"
-        else:
-            value_str = f"{value/1_000_000:.2f}jt"
-
+        value_str = _format_value(value)
         rsi = f" | RSI14: {c['rsi14']:.1f}" if c.get("rsi14") else ""
         macd = f" | MACD: {c['macd']:.2f}" if c.get("macd") else ""
 
@@ -58,6 +62,16 @@ def build_message(result: dict) -> str:
             f"*{c['ticker']}* — close {c['close']:,.0f}\n"
             f"value: {value_str} | vol spike: {c['volume_spike']:.2f}x | MA20: {c['ma20']:,.0f}{rsi}{macd}"
         )
+
+        rec = c.get("recommendation")
+        if rec:
+            lines.append(
+                f"💡 Entry: {rec['entry_zone_low']:,.0f} – {rec['entry_zone_high']:,.0f} | "
+                f"SL: {rec['stop_loss']:,.0f} | TP: {rec['target_profit']:,.0f} | "
+                f"R:R 1:{rec['risk_reward']:.2f}"
+            )
+            lines.append(f"📝 {rec['rationale']}")
+            lines.append("")
 
     lines.append("\n⚠️ _Ini bukan sinyal beli. Lakukan due diligence sebelum entry._")
     return "\n".join(lines)

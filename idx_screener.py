@@ -53,7 +53,7 @@ PRESETS = {
 
 # Konstanta rekomendasi risiko
 SWING_RISK_PERCENT = 0.07       # jarak SL 7% dari harga close
-MIN_REWARD_RISK = 1.5           # minimum R:R 1:1.5
+MIN_REWARD_RISK = 2.0           # minimum R:R 1:2
 DEFAULT_TP_PERCENT = 0.05       # TP +5% (kalau ATR tidak tersedia)
 DEFAULT_ENTRY_BUFFER = 0.015    # zona entry ±1.5%
 
@@ -184,9 +184,9 @@ def generate_recommendation(
     risk_reward = (target_profit - close) / (close - stop_loss)
 
     if rsi14 is not None and rsi14 > 70:
-        rationale = f"RSI tinggi ({rsi14:.1f}); tunggu pullback ke zona entry. SL ATR-based, TP {MIN_REWARD_RISK}:1."
+        rationale = f"RSI tinggi ({rsi14:.1f}); tunggu pullback ke zona entry. SL ATR-based, TP {MIN_REWARD_RISK:.0f}:1."
     else:
-        rationale = f"Breakout volume dengan SL ATR-based. Target TP {MIN_REWARD_RISK}:1 risk-reward."
+        rationale = f"Breakout volume dengan SL ATR-based. Target TP {MIN_REWARD_RISK:.0f}:1 risk-reward."
 
     return TradeRecommendation(
         ticker=ticker,

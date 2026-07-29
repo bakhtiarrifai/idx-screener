@@ -229,6 +229,7 @@ DASHBOARD_TEMPLATE = """
     <div class="container">
         <h1>📊 IDX Screener Dashboard</h1>
         <p class="subtitle">Histori kandidat swing trade harian dari Bursa Efek Indonesia</p>
+        <p class="subtitle">Data closing H-1, dirilis hari H jam 08:30 WIB sebelum bursa buka</p>
 
         <div class="stats">
             <div class="stat-card">

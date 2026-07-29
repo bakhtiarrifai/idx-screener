@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idx-screener"
+version = "0.1.0"
+description = "IDX daily stock screener with Telegram notifications and dashboard"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Masbah", email = "bakhtiarrifai@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "yfinance>=0.2.40",
+    "pandas>=2.0.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "flask>=3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/bakhtiarrifai/idx-screener"
+Repository = "https://github.com/bakhtiarrifai/idx-screener"
+Issues = "https://github.com/bakhtiarrifai/idx-screener/issues"
+
+[project.scripts]
+idx-screener = "idx_screener:main"
+idx-screener-run = "run:main"
+idx-screener-dashboard = "dashboard:app.run"

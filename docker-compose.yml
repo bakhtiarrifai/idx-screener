@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  screener:
+    build: .
+    container_name: idx-screener
+    env_file:
+      - .env
+    volumes:
+      - ./screener_history.db:/app/screener_history.db
+      - ./screener.log:/app/screener.log
+      - ./fallback_notifications.log:/app/fallback_notifications.log
+    command: >
+      sh -c "python run.py"
+
+  dashboard:
+    build: .
+    container_name: idx-screener-dashboard
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./screener_history.db:/app/screener_history.db
+    command: >
+      sh -c "python dashboard.py"
+
+  scheduler:
+    build: .
+    container_name: idx-screener-scheduler
+    env_file:
+      - .env
+    volumes:
+      - ./screener_history.db:/app/screener_history.db
+      - ./screener.log:/app/screener.log
+      - ./fallback_notifications.log:/app/fallback_notifications.log
+    command: >
+      sh -c "echo '30 1 * * 1-5 cd /app && python run.py >> /app/screener.log 2>&1' | crontab - && cron -f"

@@ -368,33 +368,45 @@ class HistoryStore:
 
     def save(self, date: str, candidates: list[dict]) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            for c in candidates:
-                rec = c.get("recommendation")
+            if candidates:
+                for c in candidates:
+                    rec = c.get("recommendation")
+                    conn.execute(
+                        """
+                        INSERT INTO screenings
+                        (date, ticker, close, volume, value_traded, volume_spike, ma20, rsi14, macd, macd_signal,
+                         atr14, entry_zone_low, entry_zone_high, stop_loss, target_profit, risk_reward)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            date,
+                            c["ticker"],
+                            c["close"],
+                            c["volume"],
+                            c["value_traded"],
+                            c["volume_spike"],
+                            c["ma20"],
+                            c.get("rsi14"),
+                            c.get("macd"),
+                            c.get("macd_signal"),
+                            c.get("atr14"),
+                            rec.get("entry_zone_low") if rec else None,
+                            rec.get("entry_zone_high") if rec else None,
+                            rec.get("stop_loss") if rec else None,
+                            rec.get("target_profit") if rec else None,
+                            rec.get("risk_reward") if rec else None,
+                        ),
+                    )
+            else:
+                # Insert a "no candidate" placeholder row so the date is recorded
                 conn.execute(
                     """
                     INSERT INTO screenings
                     (date, ticker, close, volume, value_traded, volume_spike, ma20, rsi14, macd, macd_signal,
                      atr14, entry_zone_low, entry_zone_high, stop_loss, target_profit, risk_reward)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, 'NO_CANDIDATE', 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
                     """,
-                    (
-                        date,
-                        c["ticker"],
-                        c["close"],
-                        c["volume"],
-                        c["value_traded"],
-                        c["volume_spike"],
-                        c["ma20"],
-                        c.get("rsi14"),
-                        c.get("macd"),
-                        c.get("macd_signal"),
-                        c.get("atr14"),
-                        rec.get("entry_zone_low") if rec else None,
-                        rec.get("entry_zone_high") if rec else None,
-                        rec.get("stop_loss") if rec else None,
-                        rec.get("target_profit") if rec else None,
-                        rec.get("risk_reward") if rec else None,
-                    ),
+                    (date,),
                 )
             conn.commit()
 

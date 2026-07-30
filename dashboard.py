@@ -81,7 +81,7 @@ def get_ticker_volume_spike(days: int = 30) -> list[dict]:
         """
         SELECT ticker, AVG(volume_spike) as avg_spike, COUNT(*) as count
         FROM screenings
-        WHERE date >= ?
+        WHERE date >= ? AND ticker != 'NO_CANDIDATE'
         GROUP BY ticker
         ORDER BY avg_spike DESC
         """,
@@ -107,9 +107,22 @@ def get_stats() -> ScreeningStats:
     days = row[0]
     total = row[1]
     latest = row[2]
-    avg = total / days if days else 0.0
+    # Subtract NO_CANDIDATE placeholder rows from total candidate count
+    no_candidates = _count_no_candidate_rows()
+    total_candidates = max(0, total - no_candidates)
+    avg = total_candidates / days if days else 0.0
 
-    return ScreeningStats(days, total, latest, avg)
+    return ScreeningStats(days, total_candidates, latest, avg)
+
+
+def _count_no_candidate_rows() -> int:
+    if not DB_PATH.exists():
+        return 0
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.execute("SELECT COUNT(*) FROM screenings WHERE ticker = 'NO_CANDIDATE'")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
 
 
 def get_unique_tickers() -> list[str]:
@@ -118,7 +131,7 @@ def get_unique_tickers() -> list[str]:
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.execute("SELECT DISTINCT ticker FROM screenings ORDER BY ticker")
-    tickers = [row[0] for row in cursor.fetchall()]
+    tickers = [row[0] for row in cursor.fetchall() if row[0] != "NO_CANDIDATE"]
     conn.close()
     return tickers
 
@@ -298,6 +311,14 @@ DASHBOARD_TEMPLATE = """
             </thead>
             <tbody>
                 {% for row in screenings %}
+                {% if row.ticker == 'NO_CANDIDATE' %}
+                <tr style="opacity: 0.7; background: rgba(255,255,255,0.02);">
+                    <td>{{ row.date }}</td>
+                    <td colspan="9" style="text-align: center; color: var(--muted); font-style: italic;">
+                        Tidak ada kandidat yang lolos filter hari ini
+                    </td>
+                </tr>
+                {% else %}
                 <tr>
                     <td>{{ row.date }}</td>
                     <td><strong>{{ row.ticker }}</strong></td>
@@ -316,6 +337,7 @@ DASHBOARD_TEMPLATE = """
                     <td class="up">{{ "{:,.0f}".format(row.target_profit) if row.target_profit else "-" }}</td>
                     <td>{{ "1:{:.1f}".format(row.risk_reward) if row.risk_reward else "-" }}</td>
                 </tr>
+                {% endif %}
                 {% else %}
                 <tr>
                     <td colspan="10" style="text-align:center; color: var(--muted);">Belum ada data. Jalankan screener terlebih dahulu.</td>

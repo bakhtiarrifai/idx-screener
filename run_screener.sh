@@ -25,8 +25,8 @@ if [ -n "${HEALTHCHECKS_URL:-}" ]; then
     curl -fsS -m 10 --retry 3 "${HEALTHCHECKS_URL}/start" >/dev/null 2>&1 || true
 fi
 
-# Jalankan screener dan tangkap output JSON (skip baris log)
-JSON_RESULT=$("$PYTHON" run.py 2>/dev/null)
+# Jalankan screener; output JSON dicetak ke stdout di baris terakhir
+JSON_RESULT=$("$PYTHON" run.py 2>/dev/null | tail -1)
 
 # Validasi JSON sederhana
 if ! echo "$JSON_RESULT" | jq -e . >/dev/null 2>&1; then

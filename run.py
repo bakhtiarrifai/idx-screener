@@ -83,8 +83,8 @@ def main() -> int:
 
     send_telegram(payload)
 
-    # Output JSON ke stdout juga
-    print(json.dumps(payload, indent=2, default=str))
+    # Output JSON ke stdout juga (single line, mudah diparse bash)
+    print(json.dumps(payload, default=str))
     return 0
 
 

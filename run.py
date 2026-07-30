@@ -34,16 +34,23 @@ def run_screener_json(preset: str = "default") -> dict:
     if result.returncode != 0:
         raise RuntimeError(f"Screener failed:\n{result.stderr}")
 
-    # Ambil hanya baris JSON (setelah log lines)
-    lines = result.stdout.strip().splitlines()
-    for line in lines:
+    # Parse multi-line JSON output
+    stdout = result.stdout.strip()
+    for line in stdout.splitlines():
         line = line.strip()
         if not line:
             continue
         if line.startswith("{"):
-            return json.loads(line)
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
-    raise RuntimeError("Tidak ada output JSON dari screener.")
+    # Fallback: try parsing entire stdout
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Tidak ada output JSON valid dari screener: {e}\nOutput: {stdout[:200]}")
 
 
 def send_telegram(payload: dict) -> None:

@@ -217,10 +217,14 @@ python dashboard.py
 
 ### Jalankan via Systemd (Linux)
 
+Service file dibuat otomatis saat menjalankan `setup_cron.sh`. Setelah itu:
+
 ```bash
-systemctl --user enable --now idx-screener-dashboard.service
-systemctl --user status idx-screener-dashboard.service
+systemctl --user status idx-screener-dashboard
+systemctl --user restart idx-screener-dashboard
 ```
+
+Dashboard akan otomatis naik kembali saat reboot.
 
 ### Endpoint API
 
@@ -234,6 +238,21 @@ Fitur dashboard:
 - Filter berdasarkan ticker
 - Tabel histori dengan Entry Zone, SL, TP, dan R:R
 - Chart kandidat per hari dan volume spike per ticker
+
+## Menjalankan Test
+
+```bash
+# Aktifkan virtual environment terlebih dahulu
+source .venv/bin/activate
+
+# Install pytest (sekali saja)
+pip install pytest
+
+# Jalankan semua test
+python -m pytest tests/ -v
+```
+
+Test yang tersedia meliputi roundtrip `StockMetrics → asdict → from_dict → print_results` tanpa koneksi jaringan.
 
 ## Catatan Penting
 

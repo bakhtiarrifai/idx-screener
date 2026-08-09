@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Setup IDX Screener di Oracle Cloud (Ubuntu 22.04 / ARM free tier)
+# Setup IDX Screener di Oracle Cloud (Ubuntu 24.04 / ARM free tier)
 # Jalankan sebagai user biasa (bukan root) setelah SSH ke VM:
 #   bash setup_oracle.sh
 #

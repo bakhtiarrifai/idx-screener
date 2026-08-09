@@ -248,7 +248,7 @@ Untuk mengakses dashboard dari luar jaringan, deploy seluruh stack ke Oracle Clo
 1. Login ke [cloud.oracle.com](https://cloud.oracle.com)
 2. **Compute → Instances → Create Instance**
    - Shape: `VM.Standard.A1.Flex` (ARM, Always Free)
-   - Image: **Ubuntu 22.04**
+   - Image: **Ubuntu 24.04**
    - Tambahkan SSH public key kamu
 3. Catat **IP Publik** instance
 

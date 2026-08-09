@@ -107,6 +107,15 @@ class StockMetrics:
     latest_date: str
     recommendation: TradeRecommendation | None = None
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "StockMetrics":
+        """Bangun StockMetrics dari dict (mis. hasil asdict/JSON), termasuk nested recommendation."""
+        data = dict(data)
+        rec = data.get("recommendation")
+        if isinstance(rec, dict):
+            data["recommendation"] = TradeRecommendation(**rec)
+        return cls(**data)
+
 
 def _compute_rsi(prices: pd.Series, window: int = 14) -> float | None:
     if len(prices) < window + 1:
@@ -510,7 +519,7 @@ def main() -> int:
     if args.output == "json":
         print(json.dumps(result, indent=2, default=str))
     else:
-        candidates = [StockMetrics(**c) for c in result["candidates"]]
+        candidates = [StockMetrics.from_dict(c) for c in result["candidates"]]
         print_results(candidates, result["date"])
 
     return 0

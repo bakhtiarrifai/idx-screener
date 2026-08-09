@@ -239,6 +239,58 @@ Fitur dashboard:
 - Tabel histori dengan Entry Zone, SL, TP, dan R:R
 - Chart kandidat per hari dan volume spike per ticker
 
+## Deploy ke Oracle Cloud (Akses Remote)
+
+Untuk mengakses dashboard dari luar jaringan, deploy seluruh stack ke Oracle Cloud **Always Free** tier (VM ARM, 4 OCPU / 24 GB RAM).
+
+### Langkah 1 — Buat VM di Oracle Cloud Console
+
+1. Login ke [cloud.oracle.com](https://cloud.oracle.com)
+2. **Compute → Instances → Create Instance**
+   - Shape: `VM.Standard.A1.Flex` (ARM, Always Free)
+   - Image: **Ubuntu 22.04**
+   - Tambahkan SSH public key kamu
+3. Catat **IP Publik** instance
+
+### Langkah 2 — Buka Port 80 di Security List
+
+1. **Networking → Virtual Cloud Networks → VCN kamu → Security Lists**
+2. **Add Ingress Rule:**
+   - Source CIDR: `0.0.0.0/0`
+   - Protocol: TCP
+   - Destination Port: `80`
+
+### Langkah 3 — SSH dan Jalankan Setup Script
+
+```bash
+ssh ubuntu@<IP_PUBLIK>
+curl -fsSL https://raw.githubusercontent.com/bakhtiarrifai/idx-screener/main/setup_oracle.sh | bash
+```
+
+Script otomatis melakukan:
+- Install Python, nginx, dependensi sistem
+- Clone repo dan setup virtual environment
+- Konfigurasi nginx sebagai reverse proxy di port 80
+- Setup systemd timer (screener 08:30 WIB) dan dashboard service
+- Buka port 80 di iptables
+
+Setelah selesai, dashboard bisa diakses di: **`http://<IP_PUBLIK>`**
+
+### Langkah 4 — Isi Kredensial Telegram
+
+```bash
+nano ~/idx-screener/.env
+# Isi TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID
+```
+
+### Update ke Versi Terbaru
+
+```bash
+cd ~/idx-screener && git pull && systemctl --user restart idx-screener-dashboard
+```
+
+---
+
 ## Menjalankan Test
 
 ```bash

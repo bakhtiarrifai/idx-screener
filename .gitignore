@@ -40,3 +40,4 @@ config.local.json
 # Claude local settings
 .claude/settings.local.json
 .claude/
+dashboard.py.bak

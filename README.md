@@ -209,10 +209,16 @@ Jika pengiriman Telegram gagal, pesan akan disimpan ke `fallback_notifications.l
 
 Dashboard tersedia di http://localhost:5000
 
+Dua opsi dashboard:
+
+- **`dashboard.py`** — standalone, khusus IDX (repo ini saja)
+- **`unified_dashboard.py`** — terpadu IDX + US dengan tombol toggle market (🇮🇩/🇺🇸). Membutuhkan repo [us-screener](https://github.com/bakhtiarrifai/us-screener) ter-checkout di folder sebelah (`../us-screener` beserta `screener_history.db`-nya)
+
 ### Jalankan Manual
 
 ```bash
 python dashboard.py
+# atau: python unified_dashboard.py --port 5000
 ```
 
 ### Jalankan via Systemd (Linux)

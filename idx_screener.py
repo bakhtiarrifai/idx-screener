@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import logging
 import sqlite3
 import sys
@@ -253,12 +254,13 @@ def calculate_metrics(df: pd.DataFrame, config: ScreenerConfig) -> list[StockMet
         volume = int(latest["Volume"])
         value_traded = close * volume
 
-        past = group.iloc[:-config.ma_window]
-        if len(past) < config.ma_window:
+        # [upgrade-2026-11] fix: rata-rata volume = 20 hari SEBELUM hari sinyal; MA20 = 20 close terakhir.
+        prev = group.iloc[:-1]
+        if len(prev) < config.ma_window:
             continue
 
-        avg_volume_20d = float(past["Volume"].tail(config.ma_window).mean())
-        ma20 = float(past["Close"].tail(config.ma_window).mean())
+        avg_volume_20d = float(prev["Volume"].tail(config.ma_window).mean())
+        ma20 = float(group["Close"].tail(config.ma_window).mean())
         volume_spike = volume / avg_volume_20d if avg_volume_20d > 0 else 0.0
 
         close_series = group["Close"]
@@ -442,6 +444,7 @@ def _migrate_db(db_path: str | Path) -> None:
             "stop_loss": "REAL",
             "target_profit": "REAL",
             "risk_reward": "REAL",
+            "strategy": "TEXT",  # [upgrade-2026-11]
         }
         for col, col_type in new_columns.items():
             if col not in columns:
@@ -449,28 +452,107 @@ def _migrate_db(db_path: str | Path) -> None:
         conn.commit()
 
 
+# [upgrade-2026-11] Tag strategi & penjaga data basi (hari libur).
+def _date_already_saved(db_path, date: str) -> bool:
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute("SELECT 1 FROM screenings WHERE date = ? LIMIT 1", (date,)).fetchone() is not None
+
+
+def _tag_strategy(db_path, date: str, strategy: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE screenings SET strategy = ? WHERE date = ? AND strategy IS NULL", (strategy, date))
+        conn.commit()
+
+
+# [upgrade-2026-11] Strategi T1 — dipilih lewat backtest 2019–2023 & diuji 2024–2026 (lihat supervisor bulanan).
+T1_SL_ATR = float(os.environ.get("T1_SL_ATR", "2.0"))   # ubah via env setelah disetujui dari laporan supervisor
+T1_TP_ATR = float(os.environ.get("T1_TP_ATR", "4.0"))
+T1_MAX_DAYS, T1_TOP_N = 20, 5
+INDEX_TICKER = "^JKSE"
+
+
+def _wilder_atr(g: pd.DataFrame, n: int = 14) -> pd.Series:
+    tr = pd.concat([g["High"] - g["Low"], (g["High"] - g["Close"].shift()).abs(),
+                    (g["Low"] - g["Close"].shift()).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / n, adjust=False).mean()
+
+
+def _index_uptrend() -> bool:
+    idx = yf.download(INDEX_TICKER, period="2y", progress=False, auto_adjust=True)
+    c = idx["Close"].squeeze().dropna()
+    ma50, ma200 = c.rolling(50).mean(), c.rolling(200).mean()
+    return bool(c.iloc[-1] > ma50.iloc[-1] > ma200.iloc[-1])
+
+
+def t1_candidates(df: pd.DataFrame, config: "ScreenerConfig") -> list["StockMetrics"]:
+    """Breakout close di atas high 20 hari + volume ≥1,5× rata-rata 20 hari + MA50>MA200, saat IHSG uptrend."""
+    if not _index_uptrend():
+        logger.info("T1: IHSG tidak dalam tren naik (close>MA50>MA200) — tidak ada sinyal.")
+        return []
+    out = []
+    for ticker, g in df.groupby("Ticker"):
+        g = g.sort_values("Date").reset_index(drop=True)
+        if len(g) < 210:
+            continue
+        c, v = g["Close"], g["Volume"]
+        close, volume = float(c.iloc[-1]), int(v.iloc[-1])
+        vavg20 = float(v.iloc[-21:-1].mean())
+        ma20, ma50, ma200 = (float(c.tail(n).mean()) for n in (20, 50, 200))
+        hh20 = float(c.iloc[-21:-1].max())
+        atr = float(_wilder_atr(g).iloc[-1])
+        spike = volume / vavg20 if vavg20 > 0 else 0.0
+        if not (close * volume >= config.min_value_traded and close >= config.min_close_price
+                and close > hh20 and spike >= config.volume_spike_ratio and close > ma50 > ma200 and atr > 0):
+            continue
+        sl, tp = close - T1_SL_ATR * atr, close + T1_TP_ATR * atr
+        rec = TradeRecommendation(
+            ticker=ticker, close=close, entry_zone_low=close * 0.985, entry_zone_high=close * 1.015,
+            stop_loss=sl, target_profit=tp, risk_reward=(tp - close) / (close - sl),
+            rationale=(f"Breakout high 20 hari, volume {spike:.1f}x, tren naik (MA50>MA200), IHSG uptrend. "
+                       f"SL {T1_SL_ATR:.0f}xATR, TP {T1_TP_ATR:.0f}xATR, keluar bila {T1_MAX_DAYS} hari bursa belum kena."))
+        macd, macd_signal = _compute_macd(c)
+        out.append(StockMetrics(ticker=ticker, close=close, volume=volume, value_traded=close * volume,
+                                avg_volume_20d=vavg20, volume_spike=spike, ma20=ma20, above_ma20=close > ma20,
+                                rsi14=_compute_rsi(c), macd=macd, macd_signal=macd_signal, atr14=atr,
+                                latest_date=pd.to_datetime(g["Date"].iloc[-1]).date().isoformat(), recommendation=rec))
+    out.sort(key=lambda m: m.volume_spike, reverse=True)
+    return out[:T1_TOP_N]
+
+
 def run_screener(
     tickers: list[str],
     config: ScreenerConfig,
     period: str = "90d",
     store: HistoryStore | None = None,
+    strategy: str = "t1",  # [upgrade-2026-11]
 ) -> dict:
     """Jalankan pipeline screener dan kembalikan hasil dalam dictionary."""
-    df = fetch_prices(tickers, period=period)
-    metrics = calculate_metrics(df, config)
-    candidates = filter_candidates(metrics, config)
+    # [upgrade-2026-11] t1 butuh ±2 tahun data untuk MA200
+    df = fetch_prices(tickers, period="2y" if strategy == "t1" else period)
+    if strategy == "t1":
+        candidates = t1_candidates(df, config)
+    else:
+        metrics = calculate_metrics(df, config)
+        candidates = filter_candidates(metrics, config)
     latest_date = pd.to_datetime(df["Date"]).max().date().isoformat() if not df.empty else None
 
     candidate_dicts = [asdict(m) for m in candidates]
 
-    if store and latest_date:
+    stale = bool(store and latest_date and _date_already_saved(store.db_path, latest_date))  # [upgrade-2026-11]
+    if stale:
+        logger.warning("Data %s sudah tersimpan (bursa libur / data belum diperbarui) — tidak disimpan ulang.", latest_date)
+        candidate_dicts = []
+    elif store and latest_date:
         store.save(latest_date, candidate_dicts)
+        _tag_strategy(store.db_path, latest_date, strategy)
         logger.info("Menyimpan %d kandidat ke SQLite.", len(candidate_dicts))
 
     return {
         "date": latest_date,
+        "strategy": strategy,
+        "stale": stale,
         "candidates": candidate_dicts,
-        "total_candidates": len(candidates),
+        "total_candidates": len(candidate_dicts),
         "filters": {
             "min_value_traded": config.min_value_traded,
             "volume_spike_ratio": config.volume_spike_ratio,
@@ -492,6 +574,8 @@ def main() -> int:
     parser.add_argument("--config", type=str, default=None, help="Path ke file konfigurasi JSON")
     parser.add_argument("--output", type=str, choices=["text", "json"], default="text", help="Format output")
     parser.add_argument("--save-history", action="store_true", default=True, help="Simpan hasil ke SQLite")
+    parser.add_argument("--strategy", choices=["t1", "legacy-fixed"] if "idx" == "idx" else ["legacy-fixed"],
+                        default=os.environ.get("SCREENER_STRATEGY", "t1"))  # [upgrade-2026-11]
     parser.add_argument("--no-save-history", action="store_true", help="Jangan simpan hasil ke SQLite")
     args = parser.parse_args()
 
@@ -514,7 +598,7 @@ def main() -> int:
     if store:
         _migrate_db(store.db_path)
 
-    result = run_screener(tickers, config, period=args.period, store=store)
+    result = run_screener(tickers, config, period=args.period, store=store, strategy=args.strategy)
 
     if args.output == "json":
         print(json.dumps(result, indent=2, default=str))

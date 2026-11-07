@@ -41,3 +41,5 @@ config.local.json
 .claude/settings.local.json
 .claude/
 dashboard.py.bak
+public/
+track_record.log
